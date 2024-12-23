@@ -1,0 +1,115 @@
+name: Auto-merge PRs
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+    # Ajuste conforme necessário; por exemplo, se deseja acionar só se algo na pasta 'contribuidores/' foi alterado:
+    paths:
+      - 'contribuidores/**'
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Verificar único arquivo (pasta contribuidores/ + extensão .json)
+        id: check_file
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+
+            // Vamos devolver "true" se:
+            // 1) existir exatamente 1 arquivo modificado
+            // 2) este arquivo estiver dentro de 'contribuidores/'
+            // 3) tiver extensão .json
+            let onlyContributors = false;
+
+            if (
+              files.length === 1 && 
+              files[0].filename.startsWith('contribuidores/') && 
+              files[0].filename.endsWith('.json')
+            ) {
+              onlyContributors = true;
+            }
+
+            return {
+              onlyContributors,
+              filesChanged: files.map(f => f.filename).join(' ')
+            };
+
+      - name: Verificar se PR tem apenas 1 linha alterada
+        id: check_lines
+        run: |
+          ADDITIONS=${{ github.event.pull_request.additions }}
+          DELETIONS=${{ github.event.pull_request.deletions }}
+
+          if [[ "$ADDITIONS" == "1" && "$DELETIONS" == "0" ]]; then
+            echo "one_line_change=true" >> $GITHUB_OUTPUT
+          elif [[ "$ADDITIONS" == "2" && "$DELETIONS" == "1" ]]; then
+            echo "one_line_change=true" >> $GITHUB_OUTPUT
+          else
+            echo "one_line_change=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fazer merge (squash)
+        id: merge_pr
+        if: steps.check_file.outputs.onlyContributors == 'true' && steps.check_lines.outputs.one_line_change == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const response = await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                merge_method: 'squash'
+              });
+
+              if (response.status === 200) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: "Parabéns! Seu PR foi mergeado com sucesso. 🎉"
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: "Tivemos um problema ao fazer o merge automático. Verifique os logs."
+                });
+              }
+            } catch (error) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `Erro ao fazer merge: ${error.message}`
+              });
+              core.setFailed(error.message);
+            }
+
+      - name: Comentar se não for o arquivo esperado
+        if: steps.check_file.outputs.onlyContributors == 'false'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Este PR não cumpre o critério para merge automático. Foram alterados:\n\n${steps.check_file.outputs.filesChanged}`
+            });
