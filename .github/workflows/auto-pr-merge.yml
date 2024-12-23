@@ -1,0 +1,100 @@
+name: Auto-merge PRs
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+    paths:
+      - 'contribuidores/*.json' # Executar apenas se arquivos na pasta 'contribuidores/' forem alterados
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      # Fazer checkout do código do repositório
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      # Obter a lista de arquivos modificados no PR
+      - name: List changed files
+        id: changed_files
+        run: |
+          PR_FILES=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" | \
+            jq -r '.[].filename')
+          echo "files_changed=$PR_FILES" >> $GITHUB_ENV
+
+      # Verificar se apenas arquivos na pasta 'contribuidores/' foram alterados
+      - name: Validate changed files
+        id: validate_files
+        run: |
+          ONLY_VALID_FILES=true
+          for file in ${{ env.files_changed }}; do
+            if [[ $file != contribuidores/*.json ]]; then
+              ONLY_VALID_FILES=false
+              break
+            fi
+          done
+          echo "only_valid_files=$ONLY_VALID_FILES" >> $GITHUB_ENV
+
+      # Validar o schema dos arquivos JSON modificados
+      - name: Validate JSON schema
+        id: validate_json
+        run: |
+          SCHEMA_VALID=true
+          for file in ${{ env.files_changed }}; do
+            if ! jq -e '.name and .github' "$file" >/dev/null; then
+              SCHEMA_VALID=false
+              break
+            fi
+          done
+          echo "schema_valid=$SCHEMA_VALID" >> $GITHUB_ENV
+
+      # Fundir o PR se os arquivos forem válidos e o schema estiver correto
+      - name: Merge PR
+        if: env.only_valid_files == 'true' && env.schema_valid == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const response = await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: "squash",
+            });
+
+            if (response.status === 200) {
+              console.log("Pull request merged successfully!");
+            } else {
+              throw new Error("Failed to merge pull request");
+            }
+
+      # Comentar no PR caso os arquivos sejam inválidos ou o schema esteja incorreto
+      - name: Post comment on invalid PR
+        if: env.only_valid_files != 'true' || env.schema_valid != 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = `
+              Obrigado pela sua contribuição! 🚀
+
+              Infelizmente, este PR não pode ser mesclado automaticamente porque:
+              - Apenas arquivos dentro da pasta \`contribuidores/\` são permitidos.
+              - Os arquivos devem estar no formato JSON e conter os campos obrigatórios \`name\` e \`github\`.
+
+              Por favor, revise suas alterações e tente novamente. Se precisar de ajuda, não hesite em perguntar! 😊
+            `;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
