@@ -11,9 +11,15 @@ export default {
       return JSON.parse(content)
     })
 
+    const githubUsernameRegex = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+
+    function isValidGithubUsername(username: string): boolean {
+      return githubUsernameRegex.test(username);
+    }
+
     const members = people
       .map((person) => {
-        if (!person.github || !/^https:\/\/github\.com\/\w+$/.test(person.github)) {
+        if (!person.github || !isValidGithubUsername(person.github)) {
           throw new Error(`Invalid GitHub URL: ${person.github}`);
         }
 
