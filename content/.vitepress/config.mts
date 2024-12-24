@@ -17,6 +17,7 @@ export default defineConfig({
         items: [
           { text: 'Terminal', link: '/terminal' },
           { text: 'VSCode', link: '/vscode' },
+          { text: 'Iniciando no Markdown', link: '/markdownPage' },
           { text: 'Contribuidores', link: '/contrib' }
 
         ]
