@@ -47,7 +47,7 @@ Colaborar em projetos pela primeira vez pode ser assustador, especialmente para 
 
 O **fork** cria uma cópia do repositório original na sua conta do GitHub:
 
-1. Acesse o repositório original no GitHub (página do projeto que você deseja contribuir).
+1. Acesse o repositório original no GitHub [https://github.com/cacdia/minha-primeira-contribuicao/](https://github.com/cacdia/minha-primeira-contribuicao/).
 2. Clique em **Fork** no canto superior direito.
 3. Aguarde a finalização do processo. O repositório estará agora disponível na **sua conta** do GitHub.
 
